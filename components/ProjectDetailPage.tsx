@@ -3,6 +3,9 @@ import type { ProjectDelay, User } from '../types';
 import { SubmissionStatus } from '../types';
 import { StarRatingDisplay } from './StarRatingDisplay';
 import { ClockIcon } from './icons/ClockIcon';
+import { RefreshIcon } from './icons/RefreshIcon';
+import { CheckIcon } from './icons/CheckIcon';
+import { XIcon } from './icons/XIcon';
 
 interface ProjectDetailPageProps {
   projectName: string;
@@ -52,12 +55,25 @@ const formatDelay = (days: number): string => {
 const SubmissionCard: React.FC<{ submission: ProjectDelay, users: User[] }> = ({ submission, users }) => {
   const submitter = users.find(u => u.email === submission.submitterEmail);
   const submitterDisplay = submitter ? `${submitter.fullName.charAt(0).toUpperCase()}.` : 'Anônimo';
+  const wouldBuyAgain = submission.wouldBuyAgain;
 
   return (
     <div className="bg-white dark:bg-white/20 rounded-lg shadow-lg p-6">
-      <div className="flex justify-between items-start">
+      <div className="flex justify-between items-start gap-4">
         <StarRatingDisplay rating={submission.rating} />
-        <span className="text-xs text-stone-950 dark:text-white">Enviado por: {submitterDisplay}</span>
+        <div className="text-right text-xs text-stone-950 dark:text-white space-y-1 flex-shrink-0">
+          <span>Enviado por: {submitterDisplay}</span>
+          {typeof wouldBuyAgain === 'boolean' && (
+            <div className={`flex items-center justify-end gap-1.5 ${wouldBuyAgain ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+              {wouldBuyAgain ? (
+                <CheckIcon className="w-4 h-4" />
+              ) : (
+                <XIcon className="w-4 h-4" />
+              )}
+              <span className="font-medium">{wouldBuyAgain ? 'Compraria novamente' : 'Não compraria'}</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {submission.comment && (
@@ -106,20 +122,32 @@ export const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
     p => p.status === SubmissionStatus.Approved
   );
 
-  const projectAverageRating = React.useMemo(() => {
-    if (approvedSubmissions.length === 0) return 0;
-    const totalRating = approvedSubmissions.reduce((acc, p) => acc + p.rating, 0);
-    return totalRating / approvedSubmissions.length;
-  }, [approvedSubmissions]);
+  const {
+    averageRating,
+    averageDelay,
+    wouldBuyAgainPercentage,
+    buyAgainCount,
+  } = React.useMemo(() => {
+      if (approvedSubmissions.length === 0) {
+          return { averageRating: 0, averageDelay: 0, wouldBuyAgainPercentage: 0, buyAgainCount: 0 };
+      }
+      const totalRating = approvedSubmissions.reduce((acc, p) => acc + p.rating, 0);
+      const totalDelay = approvedSubmissions.reduce((acc, p) => acc + calculateDelay(p.promisedDate, p.actualDate), 0);
 
-  const projectAverageDelay = React.useMemo(() => {
-    if (approvedSubmissions.length === 0) return 0;
-    const totalDelay = approvedSubmissions.reduce((acc, p) => acc + calculateDelay(p.promisedDate, p.actualDate), 0);
-    return totalDelay / approvedSubmissions.length;
+      const buyAgainSubmissions = approvedSubmissions.filter(p => typeof p.wouldBuyAgain === 'boolean');
+      const wouldBuyAgainCount = buyAgainSubmissions.filter(p => p.wouldBuyAgain === true).length;
+      const wouldBuyAgainPercentage = buyAgainSubmissions.length > 0 ? (wouldBuyAgainCount / buyAgainSubmissions.length) * 100 : 0;
+
+      return {
+          averageRating: totalRating / approvedSubmissions.length,
+          averageDelay: totalDelay / approvedSubmissions.length,
+          wouldBuyAgainPercentage,
+          buyAgainCount: buyAgainSubmissions.length,
+      };
   }, [approvedSubmissions]);
   
   const crowdfundingLink = projectSubmissions.length > 0 ? projectSubmissions[0].crowdfundingLink : '#';
-  const delayColor = projectAverageDelay > 90 ? 'text-red-500' : projectAverageDelay > 30 ? 'text-amber-500' : 'text-green-500';
+  const delayColor = averageDelay > 90 ? 'text-red-500' : averageDelay > 30 ? 'text-amber-500' : 'text-green-500';
 
   return (
     <div className="space-y-8">
@@ -146,12 +174,12 @@ export const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
       <div className="bg-white dark:bg-white/20 rounded-lg shadow-lg p-6">
         <h3 className="text-lg font-semibold text-emerald-800 dark:text-white mb-4">Métricas do Projeto</h3>
         {approvedSubmissions.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <h4 className="text-sm font-medium text-emerald-600 dark:text-emerald-300">Avaliação Média</h4>
               <div className="flex items-center gap-2 mt-1">
-                <StarRatingDisplay rating={projectAverageRating} starSize="h-7 w-7" />
-                <span className="text-2xl font-bold text-emerald-700 dark:text-white">{projectAverageRating.toFixed(1)}</span>
+                <StarRatingDisplay rating={averageRating} starSize="h-7 w-7" />
+                <span className="text-2xl font-bold text-emerald-700 dark:text-white">{averageRating.toFixed(1)}</span>
               </div>
               <p className="text-xs text-stone-950 dark:text-white mt-1">
                 de {approvedSubmissions.length} {approvedSubmissions.length === 1 ? 'avaliação' : 'avaliações'}
@@ -161,8 +189,22 @@ export const ProjectDetailPage: React.FC<ProjectDetailPageProps> = ({
               <h4 className="text-sm font-medium text-emerald-600 dark:text-emerald-300">Atraso Médio</h4>
               <div className="flex items-center gap-2 mt-1">
                 <ClockIcon className={`w-7 h-7 ${delayColor}`} />
-                <span className={`text-2xl font-bold ${delayColor}`}>{formatDelay(projectAverageDelay)}</span>
+                <span className={`text-2xl font-bold ${delayColor}`}>{formatDelay(averageDelay)}</span>
               </div>
+            </div>
+            <div>
+              <h4 className="text-sm font-medium text-emerald-600 dark:text-emerald-300 flex items-center gap-1">
+                  <RefreshIcon className="w-4 h-4" />
+                  Comprariam Novamente
+              </h4>
+              <span className="text-2xl font-bold text-emerald-700 dark:text-white">
+                  {buyAgainCount > 0 ? `${wouldBuyAgainPercentage.toFixed(0)}%` : 'N/A'}
+              </span>
+              {buyAgainCount > 0 && (
+                  <p className="text-xs text-stone-950 dark:text-white mt-1">
+                      de {buyAgainCount} {buyAgainCount === 1 ? 'resposta' : 'respostas'}
+                  </p>
+              )}
             </div>
           </div>
         ) : (
